@@ -1,0 +1,2387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sqlite reader</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='10' y='6' width='12' height='20' rx='1' fill='%233DCD58'/></svg>">
+<style>
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-surface: #21262d;
+  --border: #30363d;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --accent: #3DCD58;
+  --accent-hover: #2db84a;
+  --blue: #58a6ff;
+  --error: #f87171;
+  --warn: #ffa657;
+  --font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 11px;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+header h1 {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+header h1::before {
+  content: '';
+  width: 7px;
+  height: 11px;
+  background: var(--accent);
+  border-radius: 1px;
+  display: inline-block;
+}
+
+#db-info {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Buttons ────────────────────────────────────────────── */
+.btn {
+  padding: 3px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: var(--border);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-small {
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+/* ── Drop Zone ──────────────────────────────────────────── */
+#drop-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+#drop-zone.drag-over .drop-zone-content {
+  border-color: var(--accent);
+  background: rgba(61, 205, 88, 0.04);
+}
+
+.drop-zone-content {
+  text-align: center;
+  padding: 40px 60px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  transition: border-color 0.2s, background 0.2s;
+  max-width: 420px;
+}
+
+.drop-zone-content:hover {
+  border-color: var(--text-muted);
+}
+
+.drop-zone-icon {
+  font-size: 24px;
+  margin-bottom: 12px;
+  opacity: 0.3;
+}
+
+.drop-zone-content p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.drop-zone-sub {
+  font-size: 10px !important;
+  color: var(--text-muted) !important;
+}
+
+.drop-zone-formats {
+  font-size: 10px !important;
+  color: var(--text-muted) !important;
+  margin-top: 4px;
+}
+
+/* ── App Layout ─────────────────────────────────────────── */
+#app {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── Sidebar ────────────────────────────────────────────── */
+#sidebar {
+  width: 220px;
+  min-width: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+#sidebar h2 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 0 12px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#table-list {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+#table-list li {
+  padding: 2px 8px 2px 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#table-list li::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%238b949e'%3E%3Cpath d='M14 3H2a1 1 0 00-1 1v8a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1zM2 5h12v1H2V5zm0 3h5v1H2V8zm0 3h5v-1h7v1H2z'/%3E%3C/svg%3E") center/contain no-repeat;
+  flex-shrink: 0;
+}
+
+#table-list li:hover {
+  background: var(--bg-surface);
+}
+
+#table-list li.active {
+  background: #1f6feb33;
+  color: var(--blue);
+}
+
+#table-list li.active::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2358a6ff'%3E%3Cpath d='M14 3H2a1 1 0 00-1 1v8a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1zM2 5h12v1H2V5zm0 3h5v1H2V8zm0 3h5v-1h7v1H2z'/%3E%3C/svg%3E");
+}
+
+#table-list li.no-tables {
+  color: var(--text-muted);
+  cursor: default;
+  padding: 12px 8px;
+}
+
+#table-list li.no-tables::before {
+  display: none;
+}
+
+#table-list li .row-count {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Custom scrollbars (VS Code style) */
+#table-list::-webkit-scrollbar,
+.table-wrapper::-webkit-scrollbar,
+.tab-panel::-webkit-scrollbar,
+#schema-content::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+#table-list::-webkit-scrollbar-thumb,
+.table-wrapper::-webkit-scrollbar-thumb,
+.tab-panel::-webkit-scrollbar-thumb,
+#schema-content::-webkit-scrollbar-thumb {
+  background: rgba(121, 134, 153, 0.25);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 5px;
+}
+
+#table-list::-webkit-scrollbar-thumb:hover,
+.table-wrapper::-webkit-scrollbar-thumb:hover,
+.tab-panel::-webkit-scrollbar-thumb:hover,
+#schema-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(121, 134, 153, 0.5);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+#table-list::-webkit-scrollbar-corner,
+.table-wrapper::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── Main Content ───────────────────────────────────────── */
+#main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Tabs (VS Code style) ───────────────────────────────── */
+#tabs {
+  display: flex;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  height: 35px;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--bg-secondary);
+  border: none;
+  border-right: 1px solid #1b1f23;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font);
+  white-space: nowrap;
+  position: relative;
+  user-select: none;
+  transition: color 0.1s;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--accent);
+}
+
+/* ── Tab Panels ─────────────────────────────────────────── */
+.tab-panel {
+  display: none;
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.tab-panel.active {
+  display: flex;
+  flex-direction: column;
+}
+
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+  gap: 4px;
+  user-select: none;
+}
+
+.placeholder .placeholder-icon {
+  font-size: 24px;
+  opacity: 0.3;
+}
+
+.placeholder .placeholder-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.placeholder .placeholder-sub {
+  font-size: 10px;
+}
+
+/* ── Data Table ─────────────────────────────────────────── */
+.table-wrapper {
+  overflow: auto;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.table-wrapper:empty {
+  border: none;
+}
+
+.table-wrapper table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.table-wrapper th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  color: var(--blue);
+  text-align: left;
+  padding: 6px 8px;
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.table-wrapper td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #21262d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  height: 22px;
+}
+
+.table-wrapper tr:hover td {
+  background: var(--bg-secondary);
+}
+
+.cell-null {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.cell-blob {
+  color: var(--warn);
+  font-size: 10px;
+}
+
+/* ── Pagination ─────────────────────────────────────────── */
+#data-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 0;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+#data-pagination:empty {
+  display: none;
+}
+
+#data-pagination button {
+  padding: 3px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font);
+}
+
+#data-pagination button:hover {
+  background: var(--border);
+}
+
+#data-pagination button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+#data-pagination button:disabled:hover {
+  background: var(--bg-surface);
+}
+
+#data-pagination .page-info {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+#data-pagination select {
+  padding: 2px 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font);
+}
+
+/* ── Query ──────────────────────────────────────────────── */
+.query-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#sql-input {
+  flex: 1;
+  min-height: 80px;
+  padding: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 12px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+#sql-input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+#sql-input::placeholder {
+  color: var(--text-muted);
+}
+
+#run-query-btn {
+  align-self: flex-end;
+}
+
+/* ── Schema ─────────────────────────────────────────────── */
+#schema-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+}
+
+.schema-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.schema-sql {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 8px;
+  font-family: var(--font);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  overflow-x: auto;
+  line-height: 1.4;
+}
+
+/* ── Export Bar ──────────────────────────────────────────── */
+#export-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Footer ─────────────────────────────────────────────── */
+footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-muted);
+  height: 22px;
+  flex-shrink: 0;
+}
+
+#model-info {
+  color: var(--accent);
+  font-size: 10px;
+  margin-left: auto;
+}
+
+/* ── Loading ────────────────────────────────────────────── */
+#loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 100;
+}
+
+#loading-overlay p {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Messages ───────────────────────────────────────────── */
+.error-msg {
+  color: var(--error);
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  padding: 6px 8px;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.success-msg {
+  color: var(--accent);
+  background: rgba(61, 205, 88, 0.08);
+  border: 1px solid rgba(61, 205, 88, 0.2);
+  padding: 6px 8px;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+/* ── Sidebar Sash ──────────────────────────────────────── */
+#sidebar-sash {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+#sidebar-sash:hover,
+#sidebar-sash.dragging {
+  background: var(--accent);
+}
+
+#sidebar.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden;
+  border-right: none;
+}
+
+#sidebar.collapsed + #sidebar-sash {
+  width: 1px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+/* ── Column Resize ─────────────────────────────────────── */
+.table-wrapper th {
+  position: relative;
+}
+
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.col-resize-handle:hover,
+.col-resize-handle.dragging {
+  background: var(--accent);
+}
+
+body.col-resizing,
+body.col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.sidebar-resizing,
+body.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* ── Model Viewer ──────────────────────────────────────── */
+.model-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.model-search {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 11px;
+}
+
+.model-search:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.model-search::placeholder {
+  color: var(--text-muted);
+}
+
+.model-stats {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.model-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  background-image: radial-gradient(rgba(48,54,61,0.4) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.model-svg { display: block; width: 100%; height: 100%; }
+
+.model-node { cursor: grab; }
+.model-node.dragging { cursor: grabbing; }
+.model-node-box { fill: var(--bg-secondary); stroke: var(--border); stroke-width: 1; }
+.model-node:hover .model-node-box { stroke: var(--text-secondary); }
+.model-node.selected .model-node-box { stroke: var(--blue); stroke-width: 2; }
+.model-node.dimmed { opacity: 0.15; transition: opacity 0.2s; }
+.model-node-header { fill: var(--bg-surface); }
+.model-node-sep { stroke: var(--border); stroke-width: 0.5; }
+.model-node-title { fill: var(--blue); font-family: var(--font); font-size: 11px; font-weight: 600; }
+.model-node-attr-name { fill: var(--text-primary); font-family: var(--font); font-size: 10px; }
+.model-node-attr-type { fill: var(--text-muted); font-family: var(--font); font-size: 10px; }
+.model-node-attr-more { fill: var(--text-muted); font-family: var(--font); font-size: 10px; font-style: italic; }
+
+.model-edge { fill: none; stroke-width: 1.5; }
+.model-edge.dimmed { opacity: 0.06; transition: opacity 0.2s; }
+.model-edge-ref { stroke: var(--blue); }
+.model-edge-fk { stroke: var(--accent); stroke-dasharray: 6 3; }
+.model-edge-inherit { stroke: #c9a0dc; stroke-width: 2; }
+
+.model-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  user-select: none;
+  pointer-events: none;
+}
+.model-placeholder .placeholder-icon { font-size: 24px; opacity: 0.3; color: var(--text-muted); }
+.model-placeholder .placeholder-text { font-size: 13px; color: var(--text-secondary); }
+.model-placeholder .placeholder-sub { font-size: 10px; color: var(--text-muted); }
+
+.model-legend {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  display: flex;
+  gap: 10px;
+  font-size: 9px;
+  color: var(--text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+.model-legend-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  vertical-align: middle;
+  margin-right: 3px;
+}
+.model-legend-swatch-fk {
+  background: repeating-linear-gradient(90deg, var(--accent) 0 5px, transparent 5px 8px);
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #app {
+    flex-direction: column;
+  }
+
+  #sidebar {
+    width: 100% !important;
+    min-width: unset;
+    max-height: 120px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  #sidebar-sash {
+    display: none;
+  }
+
+  #table-list {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    padding: 4px 0;
+  }
+
+  #table-list li {
+    flex-shrink: 0;
+  }
+
+  .drop-zone-content {
+    padding: 30px 20px;
+  }
+
+  .query-bar {
+    flex-direction: column;
+  }
+
+  #run-query-btn {
+    align-self: stretch;
+  }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>sqlite reader</h1>
+    <span id="db-info"></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;">
+    <button id="load-model-btn" class="btn" style="display:none;">load model</button>
+    <button id="open-db-btn" class="btn" style="display:none;">open file</button>
+  </div>
+  <input type="file" id="file-input" accept=".db,.sqlite,.sqlite3" hidden>
+  <input type="file" id="model-file-input" accept=".xml" multiple hidden>
+</header>
+
+<div id="drop-zone">
+  <div class="drop-zone-content">
+    <div class="drop-zone-icon">&#9670;</div>
+    <p>Drop a SQLite database file</p>
+    <p class="drop-zone-sub">or click to browse &middot; .db .sqlite .sqlite3</p>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <aside id="sidebar">
+    <h2>Tables</h2>
+    <ul id="table-list"></ul>
+  </aside>
+  <div id="sidebar-sash"></div>
+
+  <div id="main-content">
+    <div id="tabs">
+      <button class="tab active" data-tab="data">Data</button>
+      <button class="tab" data-tab="query">Query</button>
+      <button class="tab" data-tab="schema">Schema</button>
+      <button class="tab" data-tab="model" id="model-tab-btn" style="display:none;">Model</button>
+    </div>
+
+    <div id="tab-data" class="tab-panel active">
+      <div id="data-placeholder" class="placeholder">
+        <div class="placeholder-icon">&#9670;</div>
+        <div class="placeholder-text">No table selected</div>
+        <div class="placeholder-sub">Click a table in the sidebar to browse its data</div>
+      </div>
+      <div id="data-table-wrapper" class="table-wrapper"></div>
+      <div id="data-pagination"></div>
+    </div>
+
+    <div id="tab-query" class="tab-panel">
+      <div class="query-bar">
+        <textarea id="sql-input" placeholder="SELECT * FROM table_name LIMIT 100;  (Ctrl+Enter to run)" spellcheck="false"></textarea>
+        <button id="run-query-btn" class="btn btn-primary">run</button>
+      </div>
+      <div id="query-table-wrapper" class="table-wrapper"></div>
+    </div>
+
+    <div id="tab-schema" class="tab-panel">
+      <div id="schema-placeholder" class="placeholder">
+        <div class="placeholder-icon">&#9670;</div>
+        <div class="placeholder-text">No table selected</div>
+        <div class="placeholder-sub">Click a table to view its schema</div>
+      </div>
+      <div id="schema-content"></div>
+    </div>
+
+    <div id="tab-model" class="tab-panel">
+      <div class="model-toolbar">
+        <input type="text" id="model-search" class="model-search" placeholder="filter classes..." spellcheck="false">
+        <button id="model-fit-btn" class="btn btn-small">fit</button>
+        <span id="model-stats" class="model-stats"></span>
+      </div>
+      <div id="model-content" class="model-content"></div>
+    </div>
+
+    <div id="export-bar" style="display:none;">
+      <span>export:</span>
+      <button id="export-csv" class="btn btn-small">csv</button>
+      <button id="export-json" class="btn btn-small">json</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <span id="status">ready</span>
+  <span id="row-count"></span>
+  <span id="query-time"></span>
+  <span id="model-info"></span>
+</footer>
+
+<div id="loading-overlay" style="display:none;">
+  <div class="spinner"></div>
+  <p>loading database…</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script>
+(async function () {
+  "use strict";
+
+  // ── State ──────────────────────────────────────────────────────────
+  const state = {
+    SQL: null,
+    db: null,
+    tables: [],
+    currentTable: null,
+    page: 0,
+    pageSize: 50,
+    totalRows: 0,
+    lastResults: null,   // { columns: string[], values: any[][] }
+    lastQueryMs: 0,
+    model: {
+      classes: new Map(),       // lowercase name -> classObj
+      classesByCode: new Map(), // lowercase code -> classObj
+      enums: new Map(),         // lowercase enumCode -> Map<value, label>
+    },
+  };
+
+  // ── DOM cache ──────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    header: $("header"),
+    dbInfo: $("db-info"),
+    openBtn: $("open-db-btn"),
+    fileInput: $("file-input"),
+    dropZone: $("drop-zone"),
+    app: $("app"),
+    sidebar: $("sidebar"),
+    sidebarSash: $("sidebar-sash"),
+    tableList: $("table-list"),
+    tabs: $("tabs"),
+    tabData: $("tab-data"),
+    tabQuery: $("tab-query"),
+    tabSchema: $("tab-schema"),
+    dataPlaceholder: $("data-placeholder"),
+    dataTableWrapper: $("data-table-wrapper"),
+    dataPagination: $("data-pagination"),
+    sqlInput: $("sql-input"),
+    runQueryBtn: $("run-query-btn"),
+    queryTableWrapper: $("query-table-wrapper"),
+    schemaPlaceholder: $("schema-placeholder"),
+    schemaContent: $("schema-content"),
+    exportBar: $("export-bar"),
+    exportCsv: $("export-csv"),
+    exportJson: $("export-json"),
+    status: $("status"),
+    rowCount: $("row-count"),
+    queryTime: $("query-time"),
+    loadingOverlay: $("loading-overlay"),
+    loadModelBtn: $("load-model-btn"),
+    modelFileInput: $("model-file-input"),
+    modelInfo: $("model-info"),
+    tabModel: $("tab-model"),
+    modelTabBtn: $("model-tab-btn"),
+    modelSearch: $("model-search"),
+    modelFitBtn: $("model-fit-btn"),
+    modelStats: $("model-stats"),
+    modelContent: $("model-content"),
+  };
+
+  // ── DatabaseManager ────────────────────────────────────────────────
+  const DatabaseManager = {
+    async init() {
+      state.SQL = await initSqlJs({
+        locateFile: (file) =>
+          `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`,
+      });
+    },
+
+    loadFromArrayBuffer(buffer) {
+      if (state.db) state.db.close();
+      const arr = new Uint8Array(buffer);
+      state.db = new state.SQL.Database(arr);
+    },
+
+    getTables() {
+      const res = state.db.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+      );
+      if (!res.length) return [];
+      return res[0].values.map((r) => r[0]);
+    },
+
+    getTableSchema(table) {
+      const quoted = quoteIdent(table);
+      const info = state.db.exec(`PRAGMA table_info(${quoted})`);
+      const sql = state.db.exec(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+        [table]
+      );
+      const indexes = state.db.exec(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+        [table]
+      );
+      return {
+        columns: info.length ? info[0] : { columns: [], values: [] },
+        createSql: sql.length && sql[0].values.length ? sql[0].values[0][0] : "",
+        indexes: indexes.length ? indexes[0].values.map((r) => r[0]) : [],
+      };
+    },
+
+    getRowCount(table) {
+      const res = state.db.exec(`SELECT COUNT(*) FROM ${quoteIdent(table)}`);
+      return res.length ? res[0].values[0][0] : 0;
+    },
+
+    getIntegerColumns(table) {
+      const info = state.db.exec(`PRAGMA table_info(${quoteIdent(table)})`);
+      if (!info.length) return new Set();
+      const intCols = new Set();
+      for (const row of info[0].values) {
+        const name = row[1];
+        const type = (row[2] || "").toUpperCase();
+        if (type.includes("INT") || type.includes("LONG")) intCols.add(name);
+      }
+      return intCols;
+    },
+
+    getTablePage(table, limit, offset) {
+      // Build SELECT that casts integer columns to text to preserve int64 precision
+      const intCols = this.getIntegerColumns(table);
+      const quoted = quoteIdent(table);
+      let sql;
+      if (intCols.size > 0) {
+        const colsRes = state.db.exec(`PRAGMA table_info(${quoted})`);
+        const cols = colsRes.length ? colsRes[0].values.map(r => r[1]) : [];
+        const selectParts = cols.map(c =>
+          intCols.has(c) ? `CAST(${quoteIdent(c)} AS TEXT) AS ${quoteIdent(c)}` : quoteIdent(c)
+        );
+        sql = `SELECT ${selectParts.join(", ")} FROM ${quoted} LIMIT ? OFFSET ?`;
+      } else {
+        sql = `SELECT * FROM ${quoted} LIMIT ? OFFSET ?`;
+      }
+      const res = state.db.exec(sql, [limit, offset]);
+      return res.length ? res[0] : { columns: [], values: [] };
+    },
+
+    executeQuery(sql) {
+      return state.db.exec(sql);
+    },
+
+    getRowsModified() {
+      return state.db.getRowsModified();
+    },
+
+    close() {
+      if (state.db) {
+        state.db.close();
+        state.db = null;
+      }
+    },
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────
+  function quoteIdent(name) {
+    return '"' + name.replace(/"/g, '""') + '"';
+  }
+
+  function decodeBlob(arr) {
+    // 1. Try UTF-8
+    try {
+      const utf8 = new TextDecoder("utf-8", { fatal: true }).decode(arr);
+      if (!/[\x00-\x08\x0E-\x1F]/.test(utf8)) return { text: utf8, encoding: "utf-8" };
+    } catch {}
+
+    // 2. Try UTF-16LE (common in Windows apps), skip header bytes
+    for (const offset of [0, 1, 2, 4]) {
+      if (offset >= arr.length) continue;
+      const slice = arr.slice(offset);
+      if (slice.length < 2 || slice.length % 2 !== 0) continue;
+      try {
+        const utf16 = new TextDecoder("utf-16le", { fatal: true }).decode(slice);
+        const printable = utf16.replace(/\0+$/, "");
+        if (printable.length > 0 && /^[\x20-\x7E\u00A0-\uFFFF\t\n\r]{2,}$/.test(printable)) {
+          return { text: printable, encoding: "utf-16le" + (offset ? `+${offset}` : "") };
+        }
+      } catch {}
+    }
+
+    // 3. Try structured array format (8-byte header + count + entries)
+    const structured = decodeStructuredArray(arr);
+    if (structured) return { text: structured, encoding: "struct" };
+
+    // 4. Fallback to hex
+    return { text: blobToHex(arr), encoding: "hex" };
+  }
+
+  function readInt32LE(arr, offset) {
+    return arr[offset] | (arr[offset + 1] << 8) | (arr[offset + 2] << 16) | (arr[offset + 3] << 24);
+  }
+
+  function readInt64LE(arr, offset) {
+    const lo = BigInt(arr[offset]) | (BigInt(arr[offset + 1]) << 8n) |
+               (BigInt(arr[offset + 2]) << 16n) | (BigInt(arr[offset + 3]) << 24n);
+    const hi = BigInt(arr[offset + 4]) | (BigInt(arr[offset + 5]) << 8n) |
+               (BigInt(arr[offset + 6]) << 16n) | (BigInt(arr[offset + 7]) << 24n);
+    return (hi << 32n) | lo;
+  }
+
+  // Element size from header byte 5: 0a=int16(2), 0b=int32(4), 0c=int64(8), 0e=string
+  const ELEM_SIZES = { 0x0a: 2, 0x0b: 4, 0x0c: 8 };
+
+  function readInt16LE(arr, offset) {
+    return arr[offset] | (arr[offset + 1] << 8);
+  }
+
+  function readStringEntry(arr, offset) {
+    // 1 byte flag + int32 LE char count + UTF-16LE chars
+    if (offset >= arr.length) return null;
+    const flag = arr[offset];
+    if (flag === 0) return { value: null, end: offset + 1 };
+    if (offset + 5 > arr.length) return null;
+    const charCount = readInt32LE(arr, offset + 1);
+    const byteCount = charCount * 2;
+    const strStart = offset + 5;
+    if (strStart + byteCount > arr.length) return null;
+    const text = new TextDecoder("utf-16le").decode(arr.slice(strStart, strStart + byteCount));
+    return { value: text, end: strStart + byteCount };
+  }
+
+  function decodeStructuredArray(arr) {
+    // Header: 00 04 00 00 01 XX 00 01, then int32 count, then N × entries
+    if (arr.length < 12) return null;
+    if (arr[0] !== 0x00 || arr[1] !== 0x04 || arr[4] !== 0x01) return null;
+
+    const typeCode = arr[5];
+    const count = readInt32LE(arr, 8);
+    if (count < 0 || count > 10000) return null;
+    if (count === 0) return "";
+
+    // String array (type 0x0e)
+    if (typeCode === 0x0e) {
+      const strings = [];
+      let pos = 12;
+      for (let i = 0; i < count; i++) {
+        const entry = readStringEntry(arr, pos);
+        if (!entry) return null;
+        strings.push(entry.value === null ? "null" : entry.value);
+        pos = entry.end;
+      }
+      if (pos !== arr.length) return null;
+      return count === 1 ? strings[0] : "[" + strings.map(s => JSON.stringify(s)).join(", ") + "]";
+    }
+
+    // Fixed-size integer arrays
+    const elemSize = ELEM_SIZES[typeCode];
+    if (!elemSize) return null;
+    if (arr.length !== 12 + count * elemSize) return null;
+
+    const ids = [];
+    for (let i = 0; i < count; i++) {
+      const off = 12 + i * elemSize;
+      if (elemSize === 2) ids.push(readInt16LE(arr, off));
+      else if (elemSize === 4) ids.push(readInt32LE(arr, off));
+      else ids.push(readInt64LE(arr, off).toString());
+    }
+    return "[" + ids.join(", ") + "]";
+  }
+
+  function formatCell(value) {
+    if (value === null || value === undefined) {
+      return { text: "NULL", className: "cell-null" };
+    }
+    if (value instanceof Uint8Array) {
+      const result = decodeBlob(value);
+      return { text: result.text, className: result.encoding === "hex" ? "cell-blob" : "" };
+    }
+    return { text: String(value), className: "" };
+  }
+
+  function blobToHex(arr) {
+    const hex = Array.from(arr.slice(0, 64), b => b.toString(16).padStart(2, "0")).join(" ");
+    return arr.length > 64 ? hex + "\u2026 (" + arr.length + " bytes)" : hex;
+  }
+
+  // ── ModelManager ───────────────────────────────────────────────────
+  const ModelManager = {
+    parseXML(xmlString) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xmlString, "application/xml");
+      if (doc.querySelector("parsererror")) {
+        throw new Error("Invalid XML: " + doc.querySelector("parsererror").textContent);
+      }
+
+      // Parse enums
+      for (const enumEl of doc.querySelectorAll("Enum")) {
+        const code = (enumEl.getAttribute("code") || "").toLowerCase();
+        if (!code) continue;
+        const valueMap = state.model.enums.get(code) || new Map();
+        for (const ev of enumEl.querySelectorAll("EnumValue")) {
+          const val = ev.getAttribute("value");
+          const label = ev.getAttribute("title") || ev.getAttribute("name") || "";
+          if (val !== null) valueMap.set(String(val), label);
+        }
+        state.model.enums.set(code, valueMap);
+      }
+
+      // Parse classes
+      for (const classEl of doc.querySelectorAll("Class")) {
+        const code = (classEl.getAttribute("code") || "").toLowerCase();
+        const name = (classEl.getAttribute("name") || "").toLowerCase();
+        const title = classEl.getAttribute("title") || "";
+        const description = classEl.getAttribute("description") || "";
+
+        const attrs = new Map();
+        for (const attrEl of classEl.querySelectorAll("Attribute")) {
+          const props = {};
+          for (const a of attrEl.attributes) {
+            props[a.name] = a.value;
+          }
+          const attrName = (props.name || "").toLowerCase();
+          if (attrName) attrs.set(attrName, props);
+        }
+
+        const parent = (classEl.getAttribute("parent") || "").toLowerCase();
+        const classObj = { code, name, title, description, attrs, parent };
+        if (name) state.model.classes.set(name, classObj);
+        if (code) state.model.classesByCode.set(code, classObj);
+      }
+    },
+
+    getColumnInfo(tableName, columnName) {
+      if (!tableName) return null;
+      const lower = tableName.toLowerCase();
+      const classObj = state.model.classes.get(lower) || state.model.classesByCode.get(lower);
+      if (!classObj) return null;
+
+      const attr = classObj.attrs.get(columnName.toLowerCase());
+      if (!attr) return null;
+
+      let enumMap = null;
+      if (attr.enumCode) {
+        enumMap = state.model.enums.get(attr.enumCode.toLowerCase()) || null;
+      }
+
+      return {
+        title: attr.title || null,
+        description: attr.description || null,
+        enumMap,
+      };
+    },
+
+    clear() {
+      state.model.classes.clear();
+      state.model.classesByCode.clear();
+      state.model.enums.clear();
+    },
+
+    get loaded() {
+      return state.model.classes.size > 0;
+    },
+  };
+
+  // ── UI ─────────────────────────────────────────────────────────────
+  const UI = {
+    showDropZone() {
+      el.dropZone.style.display = "flex";
+      el.app.style.display = "none";
+      el.openBtn.style.display = "none";
+      el.exportBar.style.display = "none";
+      el.dbInfo.textContent = "";
+    },
+
+    showApp(fileName, fileSize) {
+      el.dropZone.style.display = "none";
+      el.app.style.display = "flex";
+      el.openBtn.style.display = "";
+      el.loadModelBtn.style.display = "";
+      el.exportBar.style.display = "none";
+      const sizeStr =
+        fileSize < 1024
+          ? fileSize + " B"
+          : fileSize < 1048576
+          ? (fileSize / 1024).toFixed(1) + " KB"
+          : (fileSize / 1048576).toFixed(1) + " MB";
+      el.dbInfo.textContent = `${fileName} (${sizeStr})`;
+    },
+
+    switchTab(tabName) {
+      el.tabs.querySelectorAll(".tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.tab === tabName);
+      });
+      [el.tabData, el.tabQuery, el.tabSchema, el.tabModel].forEach((p) => {
+        p.classList.remove("active");
+      });
+      const panel =
+        tabName === "data"
+          ? el.tabData
+          : tabName === "query"
+          ? el.tabQuery
+          : tabName === "model"
+          ? el.tabModel
+          : el.tabSchema;
+      panel.classList.add("active");
+      if (tabName === "model" && ModelManager.loaded) {
+        ModelViewer.render();
+      }
+    },
+
+    renderTable(wrapper, results, tableName) {
+      wrapper.innerHTML = "";
+      if (!results || !results.columns || !results.columns.length) return;
+
+      // Pre-compute model info for each column
+      const colInfos = results.columns.map((col) =>
+        tableName && ModelManager.loaded ? ModelManager.getColumnInfo(tableName, col) : null
+      );
+
+      const table = document.createElement("table");
+      table.style.tableLayout = "fixed";
+      table.style.width = "auto";
+      table.style.minWidth = "100%";
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (let i = 0; i < results.columns.length; i++) {
+        const col = results.columns[i];
+        const info = colInfos[i];
+        const th = document.createElement("th");
+        th.textContent = (info && info.title) ? info.title : col;
+        if (info && info.description) th.title = info.description;
+        th.style.width = "150px";
+
+        // Column resize handle
+        const handle = document.createElement("div");
+        handle.className = "col-resize-handle";
+        handle.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const startX = e.clientX;
+          const startW = th.offsetWidth;
+          handle.classList.add("dragging");
+          document.body.classList.add("col-resizing");
+
+          const onMove = (ev) => {
+            const w = Math.max(40, startW + ev.clientX - startX);
+            th.style.width = w + "px";
+          };
+          const onUp = () => {
+            handle.classList.remove("dragging");
+            document.body.classList.remove("col-resizing");
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        });
+        th.appendChild(handle);
+        headerRow.appendChild(th);
+      }
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      for (const row of results.values) {
+        const tr = document.createElement("tr");
+        for (let ci = 0; ci < row.length; ci++) {
+          const val = row[ci];
+          const td = document.createElement("td");
+          const info = colInfos[ci];
+
+          // Translate enum values if model provides an enum map
+          if (info && info.enumMap && val !== null && val !== undefined && !(val instanceof Uint8Array)) {
+            const label = info.enumMap.get(String(val));
+            if (label) {
+              td.textContent = label;
+              td.title = String(val);
+              tr.appendChild(td);
+              continue;
+            }
+          }
+
+          const formatted = formatCell(val);
+          td.textContent = formatted.text;
+          if (formatted.className) td.className = formatted.className;
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      wrapper.appendChild(table);
+    },
+
+    renderPagination() {
+      el.dataPagination.innerHTML = "";
+      const totalPages = Math.max(1, Math.ceil(state.totalRows / state.pageSize));
+      if (totalPages <= 1 && state.totalRows <= state.pageSize) {
+        return;
+      }
+
+      const prevBtn = document.createElement("button");
+      prevBtn.textContent = "Previous";
+      prevBtn.disabled = state.page === 0;
+      prevBtn.addEventListener("click", () => {
+        state.page--;
+        TableBrowser.loadPage();
+      });
+      el.dataPagination.appendChild(prevBtn);
+
+      const info = document.createElement("span");
+      info.className = "page-info";
+      info.textContent = `Page ${state.page + 1} of ${totalPages}`;
+      el.dataPagination.appendChild(info);
+
+      const nextBtn = document.createElement("button");
+      nextBtn.textContent = "Next";
+      nextBtn.disabled = state.page >= totalPages - 1;
+      nextBtn.addEventListener("click", () => {
+        state.page++;
+        TableBrowser.loadPage();
+      });
+      el.dataPagination.appendChild(nextBtn);
+
+      const sizeLabel = document.createElement("span");
+      sizeLabel.className = "page-info";
+      sizeLabel.textContent = " Rows/page: ";
+      el.dataPagination.appendChild(sizeLabel);
+
+      const select = document.createElement("select");
+      for (const size of [25, 50, 100, 200]) {
+        const opt = document.createElement("option");
+        opt.value = size;
+        opt.textContent = size;
+        if (size === state.pageSize) opt.selected = true;
+        select.appendChild(opt);
+      }
+      select.addEventListener("change", () => {
+        state.pageSize = parseInt(select.value, 10);
+        state.page = 0;
+        TableBrowser.loadPage();
+      });
+      el.dataPagination.appendChild(select);
+    },
+
+    showLoading() {
+      el.loadingOverlay.style.display = "flex";
+    },
+
+    hideLoading() {
+      el.loadingOverlay.style.display = "none";
+    },
+
+    setStatus(msg) {
+      el.status.textContent = msg;
+    },
+
+    setRowCount(n) {
+      el.rowCount.textContent = n !== null ? `${n} rows` : "";
+    },
+
+    setQueryTime(ms) {
+      el.queryTime.textContent = ms !== null ? `${ms} ms` : "";
+    },
+
+    showError(wrapper, msg) {
+      const div = document.createElement("div");
+      div.className = "error-msg";
+      div.textContent = msg;
+      wrapper.prepend(div);
+    },
+
+    showSuccess(wrapper, msg) {
+      const div = document.createElement("div");
+      div.className = "success-msg";
+      div.textContent = msg;
+      wrapper.prepend(div);
+    },
+
+    clearMessages(wrapper) {
+      wrapper.querySelectorAll(".error-msg, .success-msg").forEach((e) => e.remove());
+    },
+  };
+
+  // ── TableBrowser ───────────────────────────────────────────────────
+  const TableBrowser = {
+    populate() {
+      el.tableList.innerHTML = "";
+      state.tables = DatabaseManager.getTables();
+      if (!state.tables.length) {
+        const li = document.createElement("li");
+        li.textContent = "No tables found";
+        li.style.color = "var(--text-muted)";
+        li.style.cursor = "default";
+        el.tableList.appendChild(li);
+        return;
+      }
+      for (const name of state.tables) {
+        const li = document.createElement("li");
+        li.textContent = name;
+        li.addEventListener("click", () => TableBrowser.selectTable(name));
+        el.tableList.appendChild(li);
+      }
+    },
+
+    selectTable(name) {
+      state.currentTable = name;
+      state.page = 0;
+
+      el.tableList.querySelectorAll("li").forEach((li) => {
+        li.classList.toggle("active", li.textContent === name);
+      });
+
+      el.dataPlaceholder.style.display = "none";
+      el.schemaPlaceholder.style.display = "none";
+
+      this.loadPage();
+      SchemaViewer.show(name);
+      UI.switchTab("data");
+    },
+
+    loadPage() {
+      const t0 = performance.now();
+      state.totalRows = DatabaseManager.getRowCount(state.currentTable);
+      const offset = state.page * state.pageSize;
+      const results = DatabaseManager.getTablePage(
+        state.currentTable,
+        state.pageSize,
+        offset
+      );
+      const elapsed = Math.round(performance.now() - t0);
+
+      state.lastResults = results;
+      state.lastQueryMs = elapsed;
+
+      UI.renderTable(el.dataTableWrapper, results, state.currentTable);
+      UI.renderPagination();
+      UI.setStatus(`Viewing "${state.currentTable}"`);
+      UI.setRowCount(state.totalRows);
+      UI.setQueryTime(elapsed);
+      el.exportBar.style.display = results.values.length ? "flex" : "none";
+    },
+  };
+
+  // ── QueryExecutor ──────────────────────────────────────────────────
+  const QueryExecutor = {
+    run() {
+      const sql = el.sqlInput.value.trim();
+      if (!sql) return;
+
+      UI.clearMessages(el.tabQuery);
+      el.queryTableWrapper.innerHTML = "";
+
+      const t0 = performance.now();
+      try {
+        const results = DatabaseManager.executeQuery(sql);
+        const elapsed = Math.round(performance.now() - t0);
+        state.lastQueryMs = elapsed;
+
+        if (results.length && results[results.length - 1].columns.length) {
+          const last = results[results.length - 1];
+          state.lastResults = last;
+          UI.renderTable(el.queryTableWrapper, last);
+          UI.setRowCount(last.values.length);
+          el.exportBar.style.display = "flex";
+        } else {
+          const modified = DatabaseManager.getRowsModified();
+          UI.showSuccess(
+            el.tabQuery,
+            `Query executed successfully. ${modified} row(s) affected.`
+          );
+          state.lastResults = null;
+          UI.setRowCount(null);
+          el.exportBar.style.display = "none";
+          // Refresh table list in case of DDL
+          TableBrowser.populate();
+        }
+
+        UI.setStatus("Query executed");
+        UI.setQueryTime(elapsed);
+      } catch (err) {
+        const elapsed = Math.round(performance.now() - t0);
+        UI.showError(el.tabQuery, err.message);
+        UI.setStatus("Query error");
+        UI.setQueryTime(elapsed);
+      }
+    },
+  };
+
+  // ── SchemaViewer ───────────────────────────────────────────────────
+  const SchemaViewer = {
+    show(table) {
+      el.schemaContent.innerHTML = "";
+
+      const schema = DatabaseManager.getTableSchema(table);
+
+      // Column info table
+      if (schema.columns.columns.length) {
+        const section = document.createElement("div");
+        section.className = "schema-section";
+        const h3 = document.createElement("h3");
+        h3.textContent = "Columns";
+        section.appendChild(h3);
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "table-wrapper";
+        UI.renderTable(wrapper, schema.columns);
+        section.appendChild(wrapper);
+        el.schemaContent.appendChild(section);
+      }
+
+      // CREATE TABLE statement
+      if (schema.createSql) {
+        const section = document.createElement("div");
+        section.className = "schema-section";
+        const h3 = document.createElement("h3");
+        h3.textContent = "CREATE TABLE Statement";
+        section.appendChild(h3);
+
+        const pre = document.createElement("pre");
+        pre.className = "schema-sql";
+        pre.textContent = schema.createSql;
+        section.appendChild(pre);
+        el.schemaContent.appendChild(section);
+      }
+
+      // Indexes
+      if (schema.indexes.length) {
+        const section = document.createElement("div");
+        section.className = "schema-section";
+        const h3 = document.createElement("h3");
+        h3.textContent = "Indexes";
+        section.appendChild(h3);
+
+        for (const idx of schema.indexes) {
+          const pre = document.createElement("pre");
+          pre.className = "schema-sql";
+          pre.textContent = idx;
+          section.appendChild(pre);
+        }
+        el.schemaContent.appendChild(section);
+      }
+    },
+  };
+
+  // ── ModelViewer (SVG class diagram) ─────────────────────────────────
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs) {
+    const e = document.createElementNS(SVG_NS, tag);
+    if (attrs) for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    return e;
+  }
+
+  const ModelViewer = {
+    _filterText: "",
+    _nodes: [], _edges: [],
+    _nodeEls: new Map(), _edgeEls: [],
+    _svg: null, _viewGroup: null,
+    _transform: { x: 0, y: 0, scale: 1 },
+    _selectedNode: null, _cleanup: null,
+
+    // sizing constants
+    CHAR_W: 6.6, ROW_H: 16, HEADER_H: 26,
+    PAD: 10, PAD_B: 4, MIN_W: 150, MAX_W: 300,
+    GAP_X: 80, GAP_Y: 60, MAX_ATTRS: 15,
+
+    /* ── public ───────────────────────────────── */
+    render() {
+      if (this._cleanup) { this._cleanup(); this._cleanup = null; }
+      el.modelContent.innerHTML = "";
+      this._nodeEls.clear(); this._edgeEls = [];
+      this._svg = null; this._viewGroup = null; this._selectedNode = null;
+
+      if (!ModelManager.loaded) {
+        this._placeholder("No model loaded", "Load an XML model file to browse classes");
+        el.modelStats.textContent = ""; return;
+      }
+      this._buildGraph();
+      if (!this._nodes.length) {
+        this._placeholder("No matching classes", "Try a different filter"); return;
+      }
+      this._layout();
+      this._renderSVG();
+      el.modelStats.textContent = state.model.classes.size + " classes, "
+        + state.model.enums.size + " enums"
+        + (this._filterText ? " (" + this._nodes.length + " shown)" : "");
+    },
+
+    fitToView() {
+      if (!this._svg || !this._viewGroup || !this._nodes.length) return;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const n of this._nodes) {
+        x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
+        x1 = Math.max(x1, n.x + n.w); y1 = Math.max(y1, n.y + n.h);
+      }
+      const bw = x1 - x0, bh = y1 - y0;
+      if (!bw || !bh) return;
+      const r = this._svg.getBoundingClientRect();
+      const pad = 40;
+      const sc = Math.min((r.width - pad * 2) / bw, (r.height - pad * 2) / bh, 1.5);
+      this._transform = {
+        x: (r.width - bw * sc) / 2 - x0 * sc,
+        y: (r.height - bh * sc) / 2 - y0 * sc,
+        scale: sc,
+      };
+      this._applyTransform();
+    },
+
+    scrollToClass(name) {
+      const ln = name.toLowerCase();
+      if (this._filterText) { this._filterText = ""; el.modelSearch.value = ""; this.render(); }
+      const node = this._nodes.find(n => n.cls.name === ln);
+      if (!node) return;
+      this._selectNode(node);
+      if (this._svg) {
+        const r = this._svg.getBoundingClientRect();
+        this._transform.x = r.width / 2 - (node.x + node.w / 2) * this._transform.scale;
+        this._transform.y = r.height / 2 - (node.y + node.h / 2) * this._transform.scale;
+        this._applyTransform();
+      }
+    },
+
+    /* ── placeholder ──────────────────────────── */
+    _placeholder(title, sub) {
+      const d = document.createElement("div");
+      d.className = "model-placeholder";
+      d.innerHTML = '<div class="placeholder-icon">&#9670;</div>'
+        + '<div class="placeholder-text">' + title + '</div>'
+        + '<div class="placeholder-sub">' + sub + '</div>';
+      el.modelContent.appendChild(d);
+    },
+
+    /* ── graph build ──────────────────────────── */
+    _matchesFilter(cls, f) {
+      if (cls.name.includes(f) || cls.code.includes(f)) return true;
+      if ((cls.title || "").toLowerCase().includes(f)) return true;
+      if ((cls.description || "").toLowerCase().includes(f)) return true;
+      for (const [a] of cls.attrs) { if (a.includes(f)) return true; }
+      return false;
+    },
+
+    _buildGraph() {
+      const f = this._filterText.toLowerCase();
+      this._nodes = []; this._edges = [];
+      const classes = Array.from(state.model.classes.values())
+        .filter(c => !f || this._matchesFilter(c, f))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const nodeMap = new Map();
+      for (const cls of classes) {
+        const attrs = Array.from(cls.attrs.entries()).map(([n, p]) => ({
+          name: n, type: p.type || "", code: (p.code || "").toLowerCase(),
+          enumCode: (p.enumCode || "").toLowerCase(), title: p.title || "",
+        }));
+        let maxLen = cls.name.length;
+        const display = attrs.slice(0, this.MAX_ATTRS);
+        for (const a of display) maxLen = Math.max(maxLen, a.name.length + (a.type ? a.type.length + 2 : 0));
+        const w = Math.min(this.MAX_W, Math.max(this.MIN_W, Math.ceil(maxLen * this.CHAR_W) + this.PAD * 2));
+        const rows = display.length + (attrs.length > this.MAX_ATTRS ? 1 : 0);
+        const h = this.HEADER_H + rows * this.ROW_H + this.PAD_B;
+        const node = { cls, attrs, display, x: 0, y: 0, w, h, extra: Math.max(0, attrs.length - this.MAX_ATTRS) };
+        this._nodes.push(node); nodeMap.set(cls.name, node);
+      }
+      // edges
+      for (const node of this._nodes) {
+        for (const attr of node.attrs) {
+          if (attr.code) {
+            const rc = state.model.classesByCode.get(attr.code);
+            if (rc && nodeMap.has(rc.name) && rc.name !== node.cls.name)
+              this._edges.push({ from: node, to: nodeMap.get(rc.name), type: "ref", label: attr.name });
+          }
+          const m = attr.name.match(/^(.+?)_?id$/i);
+          if (m) {
+            const pfx = m[1].toLowerCase();
+            const fc = state.model.classes.get(pfx) || state.model.classesByCode.get(pfx);
+            if (fc && nodeMap.has(fc.name) && fc.name !== node.cls.name) {
+              const cr = attr.code ? state.model.classesByCode.get(attr.code) : null;
+              if (!cr || !nodeMap.has(cr.name) || cr.name !== fc.name)
+                this._edges.push({ from: node, to: nodeMap.get(fc.name), type: "fk", label: attr.name });
+            }
+          }
+        }
+      }
+      // inheritance edges
+      for (const node of this._nodes) {
+        if (node.cls.parent) {
+          const pc = state.model.classes.get(node.cls.parent) || state.model.classesByCode.get(node.cls.parent);
+          if (pc && nodeMap.has(pc.name) && pc.name !== node.cls.name)
+            this._edges.push({ from: node, to: nodeMap.get(pc.name), type: "inherit", label: "extends" });
+        }
+      }
+      // dedup
+      const seen = new Set();
+      this._edges = this._edges.filter(e => {
+        const k = e.from.cls.name + "|" + e.to.cls.name + "|" + e.type;
+        if (seen.has(k)) return false; seen.add(k); return true;
+      });
+      // parallel offset
+      const pairs = new Map();
+      for (const e of this._edges) {
+        const k = [e.from.cls.name, e.to.cls.name].sort().join("|");
+        if (!pairs.has(k)) pairs.set(k, []);
+        pairs.get(k).push(e);
+      }
+      for (const arr of pairs.values()) {
+        if (arr.length > 1) for (let i = 0; i < arr.length; i++) arr[i]._oi = i - (arr.length - 1) / 2;
+      }
+    },
+
+    /* ── layout (BFS-ordered grid) ────────────── */
+    _layout() {
+      const N = this._nodes.length; if (!N) return;
+      const adj = new Map();
+      for (const n of this._nodes) adj.set(n, new Set());
+      for (const e of this._edges) { adj.get(e.from).add(e.to); adj.get(e.to).add(e.from); }
+      const ordered = [], visited = new Set();
+      while (ordered.length < N) {
+        let best = null, mx = -1;
+        for (const n of this._nodes) if (!visited.has(n) && adj.get(n).size > mx) { mx = adj.get(n).size; best = n; }
+        const q = [best]; visited.add(best);
+        while (q.length) {
+          const cur = q.shift(); ordered.push(cur);
+          const nb = Array.from(adj.get(cur)).filter(n => !visited.has(n));
+          nb.sort((a, b) => adj.get(b).size - adj.get(a).size);
+          for (const n of nb) { visited.add(n); q.push(n); }
+        }
+      }
+      const cols = Math.max(1, Math.ceil(Math.sqrt(N * 1.3)));
+      const rows = Math.ceil(N / cols);
+      const cw = new Array(cols).fill(0), rh = new Array(rows).fill(0);
+      for (let i = 0; i < N; i++) {
+        cw[i % cols] = Math.max(cw[i % cols], ordered[i].w);
+        rh[Math.floor(i / cols)] = Math.max(rh[Math.floor(i / cols)], ordered[i].h);
+      }
+      const cx = [0]; for (let c = 1; c < cols; c++) cx.push(cx[c - 1] + cw[c - 1] + this.GAP_X);
+      const cy = [0]; for (let r = 1; r < rows; r++) cy.push(cy[r - 1] + rh[r - 1] + this.GAP_Y);
+      for (let i = 0; i < N; i++) { ordered[i].x = cx[i % cols]; ordered[i].y = cy[Math.floor(i / cols)]; }
+    },
+
+    /* ── SVG rendering ────────────────────────── */
+    _renderSVG() {
+      const svg = svgEl("svg", { class: "model-svg" });
+      this._svg = svg;
+
+      const defs = svgEl("defs");
+      for (const [t, c] of [["ref", "#58a6ff"], ["fk", "#3DCD58"]]) {
+        const mk = svgEl("marker", { id: "arr-" + t, viewBox: "0 0 10 10", refX: 10, refY: 5,
+          markerWidth: 8, markerHeight: 8, orient: "auto-start-reverse" });
+        mk.appendChild(svgEl("path", { d: "M0 1L10 5L0 9Z", fill: c }));
+        defs.appendChild(mk);
+      }
+      // UML open-triangle for inheritance
+      const imk = svgEl("marker", { id: "arr-inherit", viewBox: "0 0 12 12", refX: 12, refY: 6,
+        markerWidth: 10, markerHeight: 10, orient: "auto-start-reverse" });
+      imk.appendChild(svgEl("path", { d: "M0 1L12 6L0 11Z", fill: "#0d1117", stroke: "#c9a0dc", "stroke-width": 1.5 }));
+      defs.appendChild(imk);
+      svg.appendChild(defs);
+
+      const vg = svgEl("g", { class: "model-view" });
+      this._viewGroup = vg;
+
+      const eg = svgEl("g");
+      for (const edge of this._edges) eg.appendChild(this._drawEdge(edge));
+      vg.appendChild(eg);
+
+      const ng = svgEl("g");
+      for (const node of this._nodes) ng.appendChild(this._drawNode(node));
+      vg.appendChild(ng);
+
+      svg.appendChild(vg);
+      el.modelContent.appendChild(svg);
+
+      // legend
+      if (this._edges.length) {
+        const lg = document.createElement("div");
+        lg.className = "model-legend";
+        const hasInh = this._edges.some(e => e.type === "inherit");
+        const hasRef = this._edges.some(e => e.type === "ref");
+        const hasFK = this._edges.some(e => e.type === "fk");
+        if (hasInh) lg.innerHTML += '<span><span class="model-legend-swatch" style="background:#c9a0dc"></span>inherits</span>';
+        if (hasRef) lg.innerHTML += '<span><span class="model-legend-swatch" style="background:var(--blue)"></span>ref</span>';
+        if (hasFK) lg.innerHTML += '<span><span class="model-legend-swatch model-legend-swatch-fk"></span>fk</span>';
+        el.modelContent.appendChild(lg);
+      }
+
+      this._initInteractions(svg);
+      requestAnimationFrame(() => this.fitToView());
+    },
+
+    _drawNode(node) {
+      const g = svgEl("g", { class: "model-node", transform: "translate(" + node.x + "," + node.y + ")", "data-name": node.cls.name });
+
+      // outer box
+      g.appendChild(svgEl("rect", { class: "model-node-box", width: node.w, height: node.h, rx: 3, ry: 3 }));
+      // header bg
+      g.appendChild(svgEl("rect", { class: "model-node-header", x: 1, y: 1, width: node.w - 2, height: this.HEADER_H - 1 }));
+      // separator
+      g.appendChild(svgEl("line", { class: "model-node-sep", x1: 0, y1: this.HEADER_H, x2: node.w, y2: this.HEADER_H }));
+      // title
+      const title = svgEl("text", { class: "model-node-title", x: this.PAD, y: 17 });
+      title.textContent = node.cls.name;
+      g.appendChild(title);
+      // tooltip
+      const tip = svgEl("title");
+      let tt = node.cls.name;
+      if (node.cls.title) tt += " \u2014 " + node.cls.title;
+      if (node.cls.description) tt += "\n" + node.cls.description;
+      tip.textContent = tt;
+      g.appendChild(tip);
+
+      // attributes
+      for (let i = 0; i < node.display.length; i++) {
+        const a = node.display[i];
+        const y = this.HEADER_H + (i + 1) * this.ROW_H - 4;
+        const nm = svgEl("text", { class: "model-node-attr-name", x: this.PAD, y });
+        nm.textContent = a.name;
+        g.appendChild(nm);
+        if (a.type) {
+          const tp = svgEl("text", { class: "model-node-attr-type", x: node.w - this.PAD, y, "text-anchor": "end" });
+          tp.textContent = a.type;
+          g.appendChild(tp);
+        }
+      }
+      if (node.extra > 0) {
+        const y = this.HEADER_H + (node.display.length + 1) * this.ROW_H - 4;
+        const m = svgEl("text", { class: "model-node-attr-more", x: this.PAD, y });
+        m.textContent = "+" + node.extra + " more\u2026";
+        g.appendChild(m);
+      }
+      this._nodeEls.set(node, g);
+      return g;
+    },
+
+    _drawEdge(edge) {
+      const pts = this._edgePoints(edge.from, edge.to);
+      const d = this._edgePath(pts, edge._oi || 0);
+      const path = svgEl("path", { class: "model-edge model-edge-" + edge.type, d, "marker-end": "url(#arr-" + edge.type + ")" });
+      const tip = svgEl("title");
+      tip.textContent = edge.from.cls.name + "." + edge.label + " \u2192 " + edge.to.cls.name;
+      path.appendChild(tip);
+      this._edgeEls.push({ edge, path });
+      return path;
+    },
+
+    _edgePoints(from, to) {
+      const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
+      const tcx = to.x + to.w / 2, tcy = to.y + to.h / 2;
+      return { ...this._rectPt(fcx, fcy, from.w, from.h, tcx, tcy, "p1"),
+               ...this._rectPt(tcx, tcy, to.w, to.h, fcx, fcy, "p2") };
+    },
+
+    _rectPt(cx, cy, w, h, tx, ty, prefix) {
+      const dx = tx - cx, dy = ty - cy;
+      if (!dx && !dy) return { [prefix + "x"]: cx, [prefix + "y"]: cy };
+      const s = Math.min(dx ? (w / 2) / Math.abs(dx) : Infinity, dy ? (h / 2) / Math.abs(dy) : Infinity);
+      return { [prefix + "x"]: cx + dx * s, [prefix + "y"]: cy + dy * s };
+    },
+
+    _edgePath(pts, oi) {
+      const dx = pts.p2x - pts.p1x, dy = pts.p2y - pts.p1y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 10 || !oi) return "M" + pts.p1x + " " + pts.p1y + "L" + pts.p2x + " " + pts.p2y;
+      const off = 15 * oi;
+      const nx = -dy / dist * off, ny = dx / dist * off;
+      const mx = (pts.p1x + pts.p2x) / 2 + nx, my = (pts.p1y + pts.p2y) / 2 + ny;
+      return "M" + pts.p1x + " " + pts.p1y + "Q" + mx + " " + my + " " + pts.p2x + " " + pts.p2y;
+    },
+
+    _updateEdge(ei) {
+      const pts = this._edgePoints(ei.edge.from, ei.edge.to);
+      ei.path.setAttribute("d", this._edgePath(pts, ei.edge._oi || 0));
+    },
+
+    /* ── interactions (pan / zoom / drag) ─────── */
+    _applyTransform() {
+      if (this._viewGroup) {
+        const t = this._transform;
+        this._viewGroup.setAttribute("transform", "translate(" + t.x + "," + t.y + ") scale(" + t.scale + ")");
+      }
+    },
+
+    _selectNode(node) {
+      if (this._selectedNode === node) { node = null; } // toggle off
+      this._selectedNode = node;
+      if (!node) {
+        for (const [, e] of this._nodeEls) e.classList.remove("selected", "dimmed");
+        for (const ei of this._edgeEls) ei.path.classList.remove("dimmed");
+        return;
+      }
+      const conn = new Set([node]);
+      for (const ei of this._edgeEls) {
+        if (ei.edge.from === node) conn.add(ei.edge.to);
+        if (ei.edge.to === node) conn.add(ei.edge.from);
+      }
+      for (const [n, e] of this._nodeEls) {
+        e.classList.toggle("selected", n === node);
+        e.classList.toggle("dimmed", !conn.has(n));
+      }
+      for (const ei of this._edgeEls) {
+        ei.path.classList.toggle("dimmed", ei.edge.from !== node && ei.edge.to !== node);
+      }
+    },
+
+    _initInteractions(svg) {
+      let isPan = false, panStart = null, dragNode = null, dragStart = null, dragMoved = false;
+
+      const onWheel = (e) => {
+        e.preventDefault();
+        const r = svg.getBoundingClientRect();
+        const mx = e.clientX - r.left, my = e.clientY - r.top;
+        const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        const ns = Math.max(0.05, Math.min(5, this._transform.scale * f));
+        this._transform.x = mx - (mx - this._transform.x) * (ns / this._transform.scale);
+        this._transform.y = my - (my - this._transform.y) * (ns / this._transform.scale);
+        this._transform.scale = ns;
+        this._applyTransform();
+      };
+
+      const onDown = (e) => {
+        if (e.button !== 0) return;
+        const ng = e.target.closest(".model-node");
+        if (ng) {
+          const name = ng.getAttribute("data-name");
+          const node = this._nodes.find(n => n.cls.name === name);
+          if (node) {
+            dragNode = node; dragMoved = false;
+            dragStart = { mx: e.clientX, my: e.clientY, nx: node.x, ny: node.y };
+            ng.classList.add("dragging");
+            e.preventDefault(); return;
+          }
+        }
+        isPan = true;
+        panStart = { x: e.clientX - this._transform.x, y: e.clientY - this._transform.y };
+        svg.style.cursor = "grabbing";
+        e.preventDefault();
+      };
+
+      const onMove = (e) => {
+        if (isPan && panStart) {
+          this._transform.x = e.clientX - panStart.x;
+          this._transform.y = e.clientY - panStart.y;
+          this._applyTransform();
+        }
+        if (dragNode && dragStart) {
+          const dx = (e.clientX - dragStart.mx) / this._transform.scale;
+          const dy = (e.clientY - dragStart.my) / this._transform.scale;
+          if (Math.abs(e.clientX - dragStart.mx) > 3 || Math.abs(e.clientY - dragStart.my) > 3) dragMoved = true;
+          dragNode.x = dragStart.nx + dx; dragNode.y = dragStart.ny + dy;
+          const ne = this._nodeEls.get(dragNode);
+          if (ne) ne.setAttribute("transform", "translate(" + dragNode.x + "," + dragNode.y + ")");
+          for (const ei of this._edgeEls) {
+            if (ei.edge.from === dragNode || ei.edge.to === dragNode) this._updateEdge(ei);
+          }
+        }
+      };
+
+      const onUp = () => {
+        if (isPan) { isPan = false; panStart = null; svg.style.cursor = ""; }
+        if (dragNode) {
+          const ne = this._nodeEls.get(dragNode);
+          if (ne) ne.classList.remove("dragging");
+          if (!dragMoved) this._selectNode(dragNode);
+          dragNode = null; dragStart = null;
+        }
+      };
+
+      const onBgClick = (e) => {
+        if (e.target === svg || (e.target.closest(".model-view") && !e.target.closest(".model-node") && !e.target.closest(".model-edge"))) {
+          this._selectNode(null);
+        }
+      };
+
+      svg.addEventListener("wheel", onWheel, { passive: false });
+      svg.addEventListener("mousedown", onDown);
+      svg.addEventListener("click", onBgClick);
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+
+      this._cleanup = () => {
+        svg.removeEventListener("wheel", onWheel);
+        svg.removeEventListener("mousedown", onDown);
+        svg.removeEventListener("click", onBgClick);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+    },
+  };
+
+  // ── ExportManager ──────────────────────────────────────────────────
+  const ExportManager = {
+    exportCSV() {
+      if (!state.lastResults || !state.lastResults.columns.length) return;
+      const { columns, values } = state.lastResults;
+
+      const escapeField = (val) => {
+        if (val === null || val === undefined) return "";
+        if (val instanceof Uint8Array) return formatCell(val).text;
+        const s = String(val);
+        if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+          return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      };
+
+      const lines = [];
+      lines.push(columns.map(escapeField).join(","));
+      for (const row of values) {
+        lines.push(row.map(escapeField).join(","));
+      }
+      const csv = lines.join("\r\n") + "\r\n";
+      this._download(csv, "export.csv", "text/csv;charset=utf-8");
+    },
+
+    exportJSON() {
+      if (!state.lastResults || !state.lastResults.columns.length) return;
+      const { columns, values } = state.lastResults;
+
+      const rows = values.map((row) => {
+        const obj = {};
+        columns.forEach((col, i) => {
+          let val = row[i];
+          if (val instanceof Uint8Array) {
+            val = formatCell(val).text;
+          }
+          obj[col] = val;
+        });
+        return obj;
+      });
+
+      const json = JSON.stringify(rows, null, 2);
+      this._download(json, "export.json", "application/json;charset=utf-8");
+    },
+
+    _download(content, filename, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+  };
+
+  // ── File Handling ──────────────────────────────────────────────────
+  function handleFile(file) {
+    if (!file) return;
+
+    UI.showLoading();
+    UI.setStatus("Loading database...");
+
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        DatabaseManager.loadFromArrayBuffer(reader.result);
+        UI.showApp(file.name, file.size);
+        TableBrowser.populate();
+        UI.setStatus("Database loaded");
+        UI.setRowCount(null);
+        UI.setQueryTime(null);
+
+        // Reset tabs
+        el.dataPlaceholder.style.display = "";
+        el.schemaPlaceholder.style.display = "";
+        el.dataTableWrapper.innerHTML = "";
+        el.dataPagination.innerHTML = "";
+        el.queryTableWrapper.innerHTML = "";
+        el.schemaContent.innerHTML = "";
+        el.modelContent.innerHTML = "";
+        el.sqlInput.value = "";
+        state.currentTable = null;
+        state.lastResults = null;
+        UI.switchTab("data");
+      } catch (err) {
+        UI.setStatus("Error loading database");
+        UI.showDropZone();
+        alert("Failed to open database: " + err.message);
+      } finally {
+        UI.hideLoading();
+      }
+    };
+    reader.onerror = function () {
+      UI.hideLoading();
+      UI.setStatus("Error reading file");
+      alert("Failed to read file.");
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ── Event Bindings ─────────────────────────────────────────────────
+  function bindEvents() {
+    // Drop zone click
+    el.dropZone.addEventListener("click", () => el.fileInput.click());
+
+    // Open button
+    el.openBtn.addEventListener("click", () => el.fileInput.click());
+
+    // File input
+    el.fileInput.addEventListener("change", (e) => {
+      if (e.target.files.length) handleFile(e.target.files[0]);
+      e.target.value = "";
+    });
+
+    // Drag and drop
+    el.dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      el.dropZone.classList.add("drag-over");
+    });
+    el.dropZone.addEventListener("dragleave", () => {
+      el.dropZone.classList.remove("drag-over");
+    });
+    el.dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      el.dropZone.classList.remove("drag-over");
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+
+    // Also allow drop on the whole document when app is visible
+    document.addEventListener("dragover", (e) => e.preventDefault());
+    document.addEventListener("drop", (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+
+    // Tabs
+    el.tabs.addEventListener("click", (e) => {
+      if (e.target.classList.contains("tab")) {
+        UI.switchTab(e.target.dataset.tab);
+      }
+    });
+
+    // Run query
+    el.runQueryBtn.addEventListener("click", () => QueryExecutor.run());
+
+    // Ctrl/Cmd + Enter to run query
+    el.sqlInput.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        QueryExecutor.run();
+      }
+    });
+
+    // Load model
+    el.loadModelBtn.addEventListener("click", () => el.modelFileInput.click());
+    el.modelFileInput.addEventListener("change", async (e) => {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+      let loaded = 0;
+      for (const file of files) {
+        try {
+          const text = await file.text();
+          ModelManager.parseXML(text);
+          loaded++;
+        } catch (err) {
+          console.error("Failed to parse model XML:", file.name, err);
+          alert("Failed to parse " + file.name + ": " + err.message);
+        }
+      }
+      e.target.value = "";
+      if (loaded > 0) {
+        el.modelInfo.textContent = "model: " + state.model.classes.size + " classes, " + state.model.enums.size + " enums";
+        el.modelTabBtn.style.display = "";
+        // Re-render current table to apply model
+        if (state.currentTable) TableBrowser.loadPage();
+        // Re-render model tab if active
+        if (el.tabModel.classList.contains("active")) ModelViewer.render();
+        UI.setStatus("Model loaded (" + loaded + " file" + (loaded > 1 ? "s" : "") + ")");
+      }
+    });
+
+    // Model search filter + fit
+    el.modelSearch.addEventListener("input", () => {
+      ModelViewer._filterText = el.modelSearch.value;
+      ModelViewer.render();
+    });
+    el.modelFitBtn.addEventListener("click", () => ModelViewer.fitToView());
+
+    // Export
+    el.exportCsv.addEventListener("click", () => ExportManager.exportCSV());
+    el.exportJson.addEventListener("click", () => ExportManager.exportJSON());
+
+    // Sidebar resize via sash
+    let sidebarWidthBeforeCollapse = 220;
+    el.sidebarSash.addEventListener("mousedown", (e) => {
+      if (el.sidebar.classList.contains("collapsed")) {
+        // Click on collapsed sash to expand
+        el.sidebar.classList.remove("collapsed");
+        el.sidebar.style.width = sidebarWidthBeforeCollapse + "px";
+        return;
+      }
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = el.sidebar.offsetWidth;
+      el.sidebarSash.classList.add("dragging");
+      document.body.classList.add("sidebar-resizing");
+
+      const onMove = (ev) => {
+        const w = Math.max(100, startW + ev.clientX - startX);
+        el.sidebar.style.width = w + "px";
+      };
+      const onUp = (ev) => {
+        el.sidebarSash.classList.remove("dragging");
+        document.body.classList.remove("sidebar-resizing");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        // If dragged very small, collapse
+        if (el.sidebar.offsetWidth < 80) {
+          sidebarWidthBeforeCollapse = startW;
+          el.sidebar.classList.add("collapsed");
+        } else {
+          sidebarWidthBeforeCollapse = el.sidebar.offsetWidth;
+        }
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    // Ctrl+B / Cmd+B to toggle sidebar
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "b") {
+        e.preventDefault();
+        if (el.sidebar.classList.contains("collapsed")) {
+          el.sidebar.classList.remove("collapsed");
+          el.sidebar.style.width = sidebarWidthBeforeCollapse + "px";
+        } else {
+          sidebarWidthBeforeCollapse = el.sidebar.offsetWidth || 220;
+          el.sidebar.classList.add("collapsed");
+        }
+      }
+    });
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      UI.setStatus("Initializing sql.js...");
+      await DatabaseManager.init();
+      UI.setStatus("Ready — drop a database file to begin");
+      bindEvents();
+    } catch (err) {
+      UI.setStatus("Failed to initialize sql.js");
+      console.error("sql.js init error:", err);
+      alert("Failed to load sql.js: " + err.message);
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
