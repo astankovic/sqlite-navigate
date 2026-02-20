@@ -1103,14 +1103,39 @@ body.sidebar-resizing * {
     return '"' + name.replace(/"/g, '""') + '"';
   }
 
+  function isGzip(arr) {
+    return arr.length >= 2 && arr[0] === 0x1f && arr[1] === 0x8b;
+  }
+
+  async function decompressGzip(arr) {
+    const ds = new DecompressionStream("gzip");
+    const writer = ds.writable.getWriter();
+    writer.write(arr); writer.close();
+    const reader = ds.readable.getReader();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+  }
+
   function decodeBlob(arr) {
-    // 1. Try UTF-8
+    // 1. Gzip — detected synchronously, decompressed async (see formatCell)
+    if (isGzip(arr)) return { text: "gzip (" + arr.length + " bytes)", encoding: "gzip" };
+
+    // 2. Try UTF-8
     try {
       const utf8 = new TextDecoder("utf-8", { fatal: true }).decode(arr);
       if (!/[\x00-\x08\x0E-\x1F]/.test(utf8)) return { text: utf8, encoding: "utf-8" };
     } catch {}
 
-    // 2. Try UTF-16LE (common in Windows apps), skip header bytes
+    // 3. Try UTF-16LE (common in Windows apps), skip header bytes
     for (const offset of [0, 1, 2, 4]) {
       if (offset >= arr.length) continue;
       const slice = arr.slice(offset);
@@ -1124,11 +1149,11 @@ body.sidebar-resizing * {
       } catch {}
     }
 
-    // 3. Try structured array format (8-byte header + count + entries)
+    // 4. Try structured array format (8-byte header + count + entries)
     const structured = decodeStructuredArray(arr);
     if (structured) return { text: structured, encoding: "struct" };
 
-    // 4. Fallback to hex
+    // 5. Fallback to hex
     return { text: blobToHex(arr), encoding: "hex" };
   }
 
@@ -1206,13 +1231,13 @@ body.sidebar-resizing * {
 
   function formatCell(value) {
     if (value === null || value === undefined) {
-      return { text: "NULL", className: "cell-null" };
+      return { text: "NULL", className: "cell-null", encoding: null };
     }
     if (value instanceof Uint8Array) {
       const result = decodeBlob(value);
-      return { text: result.text, className: result.encoding === "hex" ? "cell-blob" : "" };
+      return { text: result.text, className: result.encoding === "hex" ? "cell-blob" : "", encoding: result.encoding };
     }
-    return { text: String(value), className: "" };
+    return { text: String(value), className: "", encoding: null };
   }
 
   function blobToHex(arr) {
@@ -1419,6 +1444,14 @@ body.sidebar-resizing * {
           const formatted = formatCell(val);
           td.textContent = formatted.text;
           if (formatted.className) td.className = formatted.className;
+          // Async gzip decompression — fill cell when ready
+          if (formatted.encoding === "gzip") {
+            decompressGzip(val).then(raw => {
+              const inner = decodeBlob(raw);
+              td.textContent = inner.text;
+              td.className = inner.encoding === "hex" ? "cell-blob" : "";
+            }).catch(() => { td.textContent = "gzip (decode error)"; td.className = "cell-blob"; });
+          }
           tr.appendChild(td);
         }
         tbody.appendChild(tr);
