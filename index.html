@@ -422,6 +422,7 @@ header h1::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   height: 22px;
+  cursor: pointer;
 }
 
 .table-wrapper tr:hover td {
@@ -436,6 +437,88 @@ header h1::before {
 .cell-blob {
   color: var(--warn);
   font-size: 10px;
+}
+
+/* ── Cell Popup ────────────────────────────────────────── */
+#cell-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 17, 23, 0.8);
+}
+
+#cell-popup.open {
+  display: flex;
+}
+
+.cell-popup-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-width: 80vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+}
+
+.cell-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cell-popup-col {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--blue);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.cell-popup-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  font-family: var(--font);
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.cell-popup-close:hover {
+  color: var(--text-primary);
+}
+
+.cell-popup-body {
+  padding: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  max-height: 70vh;
+  user-select: text;
+}
+
+.cell-popup-body::-webkit-scrollbar {
+  width: 10px;
+  background: transparent;
+}
+
+.cell-popup-body::-webkit-scrollbar-thumb {
+  background: rgba(121, 134, 153, 0.25);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 5px;
 }
 
 /* ── Pagination ─────────────────────────────────────────── */
@@ -940,6 +1023,16 @@ body.sidebar-resizing * {
   <p>loading database…</p>
 </div>
 
+<div id="cell-popup">
+  <div class="cell-popup-box">
+    <div class="cell-popup-header">
+      <span id="cell-popup-col" class="cell-popup-col"></span>
+      <button id="cell-popup-close" class="cell-popup-close">&times;</button>
+    </div>
+    <pre id="cell-popup-body" class="cell-popup-body"></pre>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
 <script>
 (async function () {
@@ -997,6 +1090,10 @@ body.sidebar-resizing * {
     loadModelBtn: $("load-model-btn"),
     modelFileInput: $("model-file-input"),
     modelInfo: $("model-info"),
+    cellPopup: $("cell-popup"),
+    cellPopupCol: $("cell-popup-col"),
+    cellPopupBody: $("cell-popup-body"),
+    cellPopupClose: $("cell-popup-close"),
     tabModel: $("tab-model"),
     modelTabBtn: $("model-tab-btn"),
     modelSearch: $("model-search"),
@@ -1547,6 +1644,16 @@ body.sidebar-resizing * {
 
     clearMessages(wrapper) {
       wrapper.querySelectorAll(".error-msg, .success-msg").forEach((e) => e.remove());
+    },
+
+    showCellPopup(colName, text) {
+      el.cellPopupCol.textContent = colName;
+      el.cellPopupBody.textContent = text;
+      el.cellPopup.classList.add("open");
+    },
+
+    hideCellPopup() {
+      el.cellPopup.classList.remove("open");
     },
   };
 
@@ -2343,6 +2450,29 @@ body.sidebar-resizing * {
       ModelViewer.render();
     });
     el.modelFitBtn.addEventListener("click", () => ModelViewer.fitToView());
+
+    // Cell popup — click td to show full value
+    function handleCellClick(e) {
+      const td = e.target.closest("td");
+      if (!td) return;
+      const tr = td.closest("tr");
+      if (!tr) return;
+      const table = td.closest("table");
+      if (!table) return;
+      const ci = Array.from(tr.children).indexOf(td);
+      const th = table.querySelector("thead tr");
+      const colName = th && th.children[ci] ? th.children[ci].textContent : "Column " + ci;
+      UI.showCellPopup(colName, td.textContent);
+    }
+    el.dataTableWrapper.addEventListener("click", handleCellClick);
+    el.queryTableWrapper.addEventListener("click", handleCellClick);
+    el.cellPopupClose.addEventListener("click", () => UI.hideCellPopup());
+    el.cellPopup.addEventListener("click", (e) => {
+      if (e.target === el.cellPopup) UI.hideCellPopup();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && el.cellPopup.classList.contains("open")) UI.hideCellPopup();
+    });
 
     // Export
     el.exportCsv.addEventListener("click", () => ExportManager.exportCSV());
