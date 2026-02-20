@@ -1337,7 +1337,8 @@ body.sidebar-resizing * {
     return { text: String(value), className: "", encoding: null };
   }
 
-  function blobToHex(arr) {
+  function blobToHex(arr, full) {
+    if (full) return Array.from(arr, b => b.toString(16).padStart(2, "0")).join(" ");
     const hex = Array.from(arr.slice(0, 64), b => b.toString(16).padStart(2, "0")).join(" ");
     return arr.length > 64 ? hex + "\u2026 (" + arr.length + " bytes)" : hex;
   }
@@ -1528,6 +1529,8 @@ body.sidebar-resizing * {
           const info = colInfos[ci];
 
           // Translate enum values if model provides an enum map
+          td._rawValue = val;
+
           if (info && info.enumMap && val !== null && val !== undefined && !(val instanceof Uint8Array)) {
             const label = info.enumMap.get(String(val));
             if (label) {
@@ -1544,6 +1547,7 @@ body.sidebar-resizing * {
           // Async gzip decompression — fill cell when ready
           if (formatted.encoding === "gzip") {
             decompressGzip(val).then(raw => {
+              td._decompressed = raw;
               const inner = decodeBlob(raw);
               td.textContent = inner.text;
               td.className = inner.encoding === "hex" ? "cell-blob" : "";
@@ -1654,6 +1658,36 @@ body.sidebar-resizing * {
 
     hideCellPopup() {
       el.cellPopup.classList.remove("open");
+    },
+
+    async openCellDetail(td, colName) {
+      const raw = td._rawValue;
+
+      // Non-blob: just show full text
+      if (!(raw instanceof Uint8Array)) {
+        this.showCellPopup(colName, raw === null || raw === undefined ? "NULL" : String(raw));
+        return;
+      }
+
+      // Gzip: use cached decompressed bytes or decompress now
+      if (isGzip(raw)) {
+        this.showCellPopup(colName, "decompressing\u2026");
+        try {
+          const bytes = td._decompressed || await decompressGzip(raw);
+          td._decompressed = bytes;
+          const inner = decodeBlob(bytes);
+          const fullText = inner.encoding === "hex" ? blobToHex(bytes, true) : inner.text;
+          el.cellPopupBody.textContent = fullText;
+        } catch {
+          el.cellPopupBody.textContent = "gzip decompression failed";
+        }
+        return;
+      }
+
+      // Regular blob: show full hex or decoded text
+      const result = decodeBlob(raw);
+      const fullText = result.encoding === "hex" ? blobToHex(raw, true) : result.text;
+      this.showCellPopup(colName, fullText);
     },
   };
 
@@ -2462,7 +2496,7 @@ body.sidebar-resizing * {
       const ci = Array.from(tr.children).indexOf(td);
       const th = table.querySelector("thead tr");
       const colName = th && th.children[ci] ? th.children[ci].textContent : "Column " + ci;
-      UI.showCellPopup(colName, td.textContent);
+      UI.openCellDetail(td, colName);
     }
     el.dataTableWrapper.addEventListener("click", handleCellClick);
     el.queryTableWrapper.addEventListener("click", handleCellClick);
