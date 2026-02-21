@@ -1250,7 +1250,11 @@ body.sidebar-resizing * {
     const structured = decodeStructuredArray(arr);
     if (structured) return { text: structured, encoding: "struct" };
 
-    // 5. Fallback to hex
+    // 5. Try structured object (00 04 header with typed fields)
+    const obj = decodeStructuredObject(arr);
+    if (obj) return { text: obj, encoding: "struct-obj" };
+
+    // 6. Fallback to hex
     return { text: blobToHex(arr), encoding: "hex" };
   }
 
@@ -1324,6 +1328,45 @@ body.sidebar-resizing * {
       else ids.push(readInt64LE(arr, off).toString());
     }
     return "[" + ids.join(", ") + "]";
+  }
+
+  function decodeStructuredObject(arr) {
+    // Header: 00 04 00 00 01 XX where XX is not a simple array type
+    if (arr.length < 12) return null;
+    if (arr[0] !== 0x00 || arr[1] !== 0x04 || arr[4] !== 0x01) return null;
+    const typeCode = arr[5];
+    if (typeCode === 0x0e || ELEM_SIZES[typeCode]) return null; // handled by decodeStructuredArray
+
+    const values = [];
+    let pos = 6;
+
+    while (pos < arr.length - 3) {
+      // String: 58 XX 00 01 [int32 charCount] [UTF-16LE]
+      if (arr[pos] === 0x58 && pos + 7 < arr.length && arr[pos + 2] === 0x00 && arr[pos + 3] === 0x01) {
+        pos += 4;
+        const cc = readInt32LE(arr, pos); pos += 4;
+        if (cc > 0 && cc < 100000 && pos + cc * 2 <= arr.length) {
+          try {
+            const text = new TextDecoder("utf-16le").decode(arr.slice(pos, pos + cc * 2));
+            if (text) values.push(text);
+          } catch {}
+          pos += cc * 2;
+        }
+        continue;
+      }
+      // Container: f8 XX 00 [int32 size] — enter it (don't skip) to find nested strings
+      if (arr[pos] === 0xf8 && pos + 6 < arr.length && arr[pos + 2] === 0x00) {
+        pos += 7; // skip tag(3) + size(4), continue scanning inside
+        continue;
+      }
+      // Null: 40 XX 00 00
+      if (arr[pos] === 0x40 && pos + 3 < arr.length && arr[pos + 2] === 0x00 && arr[pos + 3] === 0x00) {
+        pos += 4; continue;
+      }
+      pos++;
+    }
+
+    return values.length ? values.join(" | ") : null;
   }
 
   function formatCell(value) {
