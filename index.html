@@ -1339,68 +1339,52 @@ body.sidebar-resizing * {
   function decodeStructuredObject(arr) {
     if (!isStructuredObject(arr)) return null;
 
-    function parseFields(data, start, end) {
-      const obj = {};
-      let pos = start;
-      while (pos < end) {
-        if (pos + 3 > end) break;
-        const tag = data[pos];
-        const idx = data[pos + 1];
-        const key = "f" + idx;
-        // String: 58 XX 00 [flag] [int32 charCount] [UTF-16LE]
-        if (tag === 0x58 && pos + 7 < end && data[pos + 2] === 0x00) {
-          const flag = data[pos + 3];
-          pos += 4;
-          if (flag === 0x01) {
-            const cc = readInt32LE(data, pos); pos += 4;
-            if (cc > 0 && cc < 100000 && pos + cc * 2 <= end) {
-              try { obj[key] = new TextDecoder("utf-16le").decode(data.slice(pos, pos + cc * 2)); } catch { obj[key] = ""; }
-              pos += cc * 2;
-            } else { obj[key] = ""; }
-          } else { obj[key] = null; }
-          continue;
-        }
-        // Container: f8 XX 00 [int32 size] — recurse into nested object
-        if (tag === 0xf8 && pos + 6 < end && data[pos + 2] === 0x00) {
-          const size = readInt32LE(data, pos + 3);
-          const cEnd = Math.min(pos + 7 + size, end);
-          obj[key] = parseFields(data, pos + 7, cEnd);
-          pos = cEnd;
-          continue;
-        }
-        // 8-byte value: 60 XX 00 [8 bytes]
-        if (tag === 0x60 && pos + 10 < end && data[pos + 2] === 0x00) {
-          const hex = Array.from(data.slice(pos + 3, pos + 11), b => b.toString(16).padStart(2, "0")).join("");
-          obj[key] = "0x" + hex;
-          pos += 11;
-          continue;
-        }
-        // 4-byte value: 20 XX 00 [4 bytes]
-        if (tag === 0x20 && pos + 6 < end && data[pos + 2] === 0x00) {
-          obj[key] = readInt32LE(data, pos + 3);
-          pos += 7;
-          continue;
-        }
-        // 2-byte value: 10 XX 00 [2 bytes]
-        if (tag === 0x10 && pos + 4 < end && data[pos + 2] === 0x00) {
-          obj[key] = readInt16LE(data, pos + 3);
-          pos += 5;
-          continue;
-        }
-        // Null: 40 XX 00 00
-        if (tag === 0x40 && pos + 3 < end && data[pos + 2] === 0x00 && data[pos + 3] === 0x00) {
-          obj[key] = null;
-          pos += 4;
-          continue;
-        }
-        pos++;
+    const obj = {};
+    let pos = 6;
+    const end = arr.length;
+
+    while (pos < end) {
+      if (pos + 3 > end) break;
+      const tag = arr[pos];
+      const idx = arr[pos + 1];
+      const key = "f" + idx;
+
+      // String: 58 XX 00 [flag] [int32 charCount] [UTF-16LE]
+      if (tag === 0x58 && pos + 7 < end && arr[pos + 2] === 0x00) {
+        const flag = arr[pos + 3];
+        pos += 4;
+        if (flag === 0x01) {
+          const cc = readInt32LE(arr, pos); pos += 4;
+          if (cc > 0 && cc < 100000 && pos + cc * 2 <= end) {
+            try { obj[key] = new TextDecoder("utf-16le").decode(arr.slice(pos, pos + cc * 2)); } catch { obj[key] = ""; }
+            pos += cc * 2;
+          } else { obj[key] = ""; }
+        } else { obj[key] = null; }
+        continue;
       }
-      return obj;
+      // Container: f8 XX 00 — just enter it (flat scan)
+      if (tag === 0xf8 && pos + 6 < end && arr[pos + 2] === 0x00) {
+        pos += 7;
+        continue;
+      }
+      // 8-byte value: 60 XX 00 [8 bytes]
+      if (tag === 0x60 && pos + 10 < end && arr[pos + 2] === 0x00) {
+        const hex = Array.from(arr.slice(pos + 3, pos + 11), b => b.toString(16).padStart(2, "0")).join("");
+        obj[key] = "0x" + hex;
+        pos += 11;
+        continue;
+      }
+      // Null: 40 XX 00 00
+      if (tag === 0x40 && pos + 3 < end && arr[pos + 2] === 0x00 && arr[pos + 3] === 0x00) {
+        obj[key] = null;
+        pos += 4;
+        continue;
+      }
+      pos++;
     }
 
-    const result = parseFields(arr, 6, arr.length);
-    if (!Object.keys(result).length) return null;
-    return JSON.stringify(result, null, 2);
+    if (!Object.keys(obj).length) return null;
+    return JSON.stringify(obj, null, 2);
   }
 
   function formatCell(value) {
