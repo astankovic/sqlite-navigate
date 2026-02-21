@@ -1250,9 +1250,8 @@ body.sidebar-resizing * {
     const structured = decodeStructuredArray(arr);
     if (structured) return { text: structured, encoding: "struct" };
 
-    // 5. Try structured object (00 04 header with typed fields)
-    const obj = decodeStructuredObject(arr);
-    if (obj) return { text: obj, encoding: "struct-obj" };
+    // 5. Structured object (00 04 header with typed fields) — detect only, decode on click
+    if (isStructuredObject(arr)) return { text: "object (" + arr.length + " bytes)", encoding: "struct-obj" };
 
     // 6. Fallback to hex
     return { text: blobToHex(arr), encoding: "hex" };
@@ -1330,12 +1329,15 @@ body.sidebar-resizing * {
     return "[" + ids.join(", ") + "]";
   }
 
+  function isStructuredObject(arr) {
+    if (arr.length < 12) return false;
+    if (arr[0] !== 0x00 || arr[1] !== 0x04 || arr[4] !== 0x01) return false;
+    const tc = arr[5];
+    return tc !== 0x0e && !ELEM_SIZES[tc];
+  }
+
   function decodeStructuredObject(arr) {
-    // Header: 00 04 00 00 01 XX where XX is not a simple array type
-    if (arr.length < 12) return null;
-    if (arr[0] !== 0x00 || arr[1] !== 0x04 || arr[4] !== 0x01) return null;
-    const typeCode = arr[5];
-    if (typeCode === 0x0e || ELEM_SIZES[typeCode]) return null; // handled by decodeStructuredArray
+    if (!isStructuredObject(arr)) return null;
 
     function parseFields(data, start, end) {
       const obj = {};
@@ -1745,24 +1747,29 @@ body.sidebar-resizing * {
         return;
       }
 
-      // Gzip: use cached decompressed bytes or decompress now
+      // Gzip: decompress first, then decode inner content
+      let bytes = raw;
       if (isGzip(raw)) {
         this.showCellPopup(colName, "decompressing\u2026");
         try {
-          const bytes = td._decompressed || await decompressGzip(raw);
+          bytes = td._decompressed || await decompressGzip(raw);
           td._decompressed = bytes;
-          const inner = decodeBlob(bytes);
-          const fullText = inner.encoding === "hex" ? blobToHex(bytes, true) : inner.text;
-          el.cellPopupBody.textContent = fullText;
         } catch {
           el.cellPopupBody.textContent = "gzip decompression failed";
+          return;
         }
+      }
+
+      // Structured object: full parse on demand
+      const objJson = decodeStructuredObject(bytes);
+      if (objJson) {
+        this.showCellPopup(colName, objJson);
         return;
       }
 
       // Regular blob: show full hex or decoded text
-      const result = decodeBlob(raw);
-      const fullText = result.encoding === "hex" ? blobToHex(raw, true) : result.text;
+      const result = decodeBlob(bytes);
+      const fullText = result.encoding === "hex" ? blobToHex(bytes, true) : result.text;
       this.showCellPopup(colName, fullText);
     },
   };
